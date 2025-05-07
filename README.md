@@ -1,7 +1,7 @@
 # Bioethanol Fermentation Simulator
 
-![App Screenshot](![screenshot-20250507-135537Z-selected](https://github.com/user-attachments/assets/738fec21-3c3a-48d2-a152-286bc5129840)
-)
+![screenshot-20250507-135537Z-selected](https://github.com/user-attachments/assets/15fd50bd-322e-4107-8f02-332bdb83f6ed)
+
 
 A scientific simulation tool that models the bioethanol fermentation process, helping researchers and students understand the relationship between input parameters and ethanol production.
 
