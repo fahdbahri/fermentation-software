@@ -2,10 +2,6 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from simulator import BioethanolSimulator
 
-@st.cache_data
-def run_simulation_cached(inputs):
-    simulator = BioethanolSimulator()
-    return simulator.run_simulation(inputs)
 
 def main():
     st.set_page_config(layout="wide", page_title="Bioethanol Fermentation Simulator")
