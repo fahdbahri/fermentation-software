@@ -37,7 +37,8 @@ def main():
             }
             
             # Run simulation
-            results, outputs = run_simulation_cached(inputs)
+            simulator = BioethanolSimulator()
+            results, outputs = simulator.run_simulation(inputs)
             
             # Display results
             st.subheader("Simulation Results")
