@@ -44,7 +44,7 @@ class FermentationApp:
         input_frame = ttk.LabelFrame(left_frame, text="Input Parameters", padding=15)
         input_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Input fields
+        # Input fields with placeholder behavior
         self.create_input_field(input_frame, "Initial Substrate (S₀, g/L):", 'S0', 0, (1, 500))
         self.create_input_field(input_frame, "Broth Volume (V, L):", 'V', 2, (0.1, 1000))
         self.create_input_field(input_frame, "Initial Biomass (X₀, g/L):", 'X0', 4, (0.01, 10))
@@ -72,14 +72,12 @@ class FermentationApp:
         plot_frame = ttk.LabelFrame(main_frame, text="Process Visualization", padding=15)
         plot_frame.grid(row=1, column=1, sticky="nsew")
         
-        # Create figure
-        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(6, 6))
-        self.fig.patch.set_facecolor('#e6f0fa')
-        plt.tight_layout(pad=3.0)
-        
-        # Canvas for plot
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+        # Canvas for plot (lazy loading)
+        self.canvas = FigureCanvasTkAgg(plt.Figure(figsize=(6, 6)), master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.fig = None
+        self.ax1 = None
+        self.ax2 = None
         
         # Configure grid weights
         main_frame.columnconfigure(0, weight=1)
@@ -87,16 +85,19 @@ class FermentationApp:
         main_frame.rowconfigure(1, weight=1)
     
     def create_input_field(self, frame, label_text, field_name, row, limits):
-        """Create input field with range label"""
+        """Create input field with placeholder behavior"""
         ttk.Label(frame, text=label_text).grid(row=row, column=0, sticky="w", pady=(8, 0))
         
         # Range information
         ttk.Label(frame, text=f"Range: {limits[0]} to {limits[1]}", 
                  style='Warning.TLabel').grid(row=row+1, column=0, sticky="w")
         
-        # Input entry
+        # Input entry with placeholder
         entry = ttk.Entry(frame, width=15)
         entry.grid(row=row, column=1, pady=(8, 0))
+        entry.insert(0, "0")  # Placeholder
+        entry.bind("<FocusIn>", lambda e, ent=entry: ent.delete(0, tk.END) if ent.get() == "0" else None)
+        entry.bind("<FocusOut>", lambda e, ent=entry: ent.insert(0, "0") if not ent.get() and ent != entry else None)
         setattr(self, f"{field_name}_entry", entry)
         
         # Validation label
@@ -117,8 +118,10 @@ class FermentationApp:
         
         try:
             value = float(entry.get())
+            if value <= 0:
+                validation_label.config(text="Value must be > 0")
+                return False
             min_val, max_val = self.simulator.PARAMETER_LIMITS[field_name]
-            
             if value < min_val or value > max_val:
                 validation_label.config(text=f"Value out of range")
                 return False
@@ -156,6 +159,13 @@ class FermentationApp:
                 't': float(self.t_entry.get())
             }
             
+            # Initialize plots if not done
+            if self.fig is None:
+                self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(6, 6))
+                self.fig.patch.set_facecolor('#e6f0fa')
+                plt.tight_layout(pad=3.0)
+                self.canvas.figure = self.fig
+            
             # Run simulation
             results, outputs = self.simulator.run_simulation(inputs)
             
@@ -180,15 +190,17 @@ class FermentationApp:
         for field in ['S0', 'V', 'X0', 'N', 't']:
             entry = getattr(self, f"{field}_entry")
             entry.delete(0, tk.END)
+            entry.insert(0, "0")
             validation_label = getattr(self, f"{field}_validation")
             validation_label.config(text="")
         self.output_text.delete(1.0, tk.END)
-        self.ax1.clear()
-        self.ax2.clear()
-        self.ax1.set_ylabel('Concentration (g/L)')
-        self.ax2.set_xlabel('Time (hours)')
-        self.ax2.set_ylabel('Ethanol (g/L)')
-        self.canvas.draw()
+        if self.fig:
+            self.ax1.clear()
+            self.ax2.clear()
+            self.ax1.set_ylabel('Concentration (g/L)')
+            self.ax2.set_xlabel('Time (hours)')
+            self.ax2.set_ylabel('Ethanol (g/L)')
+            self.canvas.draw()
     
     def update_plots(self, results):
         self.ax1.clear()

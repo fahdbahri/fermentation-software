@@ -20,73 +20,79 @@ class BioethanolSimulator:
             'Pmax': 80.0    # from document
         }
 
-    def validate_inputs(self, inputs):
-        """Check if inputs are within safe limits"""
-        warnings = []
-        for param, value in inputs.items():
-            min_val, max_val = self.PARAMETER_LIMITS[param]
-            if not min_val <= value <= max_val:
-                warnings.append(f"{param}: {value} is outside recommended range ({min_val}-{max_val})")
-        return warnings
-    
     def run_simulation(self, inputs):
-        """Run simulation following the document's step-by-step scheme"""
         S0, V, X0, N, t = inputs['S0'], inputs['V'], inputs['X0'], inputs['N'], inputs['t']
         
-        # Step 1: Calculate maximum specific growth rate
+        # Increased time resolution for smoother curves
+        time_points = np.linspace(0, t, 1000)  # Increased to 1000 points
+        
+        # Initialize arrays
+        X_t = np.zeros_like(time_points)
+        S_t = np.zeros_like(time_points)
+        P_t = np.zeros_like(time_points)
+        
+        # Initial conditions
+        X_t[0] = X0
+        S_t[0] = S0
+        P_t[0] = 0
+        
+        # Simulation parameters
         mu_max = 0.203 * (N ** 0.6)
+        lag_phase_duration = 3  # hours
+        growth_phase_duration = 8  # hours
         
-        # Step 2: Calculate specific growth rate (Monod equation)
-        mu = mu_max * (S0 / (self.params['Ks'] + S0))
+        for i in range(1, len(time_points)):
+            current_time = time_points[i]
+            
+            # Phase-dependent growth rate
+            if current_time < lag_phase_duration:
+                # Lag phase - minimal growth
+                phase_factor = 0.1 * (1 - np.exp(-current_time))
+            elif current_time < lag_phase_duration + growth_phase_duration:
+                # Exponential growth phase
+                phase_factor = 1 - 0.9 * np.exp(-(current_time - lag_phase_duration)/2)
+            else:
+                # Stationary/decline phase
+                phase_factor = np.exp(-(current_time - lag_phase_duration - growth_phase_duration)/10)
+            
+            mu = mu_max * (S_t[i-1] / (self.params['Ks'] + S_t[i-1])) * phase_factor
+            
+            # Biomass growth
+            X_t[i] = X_t[i-1] + (mu * X_t[i-1] * (1 - X_t[i-1]/self.params['Xmax']) - self.params['kd'] * X_t[i-1]) * (t/1000)
+            
+            # Substrate consumption
+            if S_t[i-1] > 0:
+                Yxs = 0.4  # Biomass yield coefficient
+                Yps = 0.5  # Product yield coefficient
+                S_consumed = (X_t[i] - X_t[i-1])/Yxs + (P_t[i-1] - (0 if i==1 else P_t[i-2]))/Yps
+                S_t[i] = max(S_t[i-1] - S_consumed, 0)
+            
+            # Ethanol production - modified Luedeking-Piret model
+            if current_time < lag_phase_duration:
+                # Lag phase - minimal production
+                r_p = 0.05 * (self.params['alpha']*mu*X_t[i] + self.params['beta']*X_t[i])
+            elif S_t[i] > 0.1*S0:
+                # Active production phase
+                r_p = (self.params['alpha']*mu*X_t[i] + self.params['beta']*X_t[i]) * (1 - P_t[i-1]/self.params['Pmax'])
+            else:
+                # Substrate limitation phase
+                r_p = 0.2 * (self.params['alpha']*mu*X_t[i] + self.params['beta']*X_t[i])
+            
+            P_t[i] = min(P_t[i-1] + r_p * (t/1000), self.params['Pmax'])
         
-        # Step 3: Estimate final biomass concentration
-        X = X0 * np.exp((mu - self.params['kd']) * t)
-        if X > self.params['Xmax']:
-            X = self.params['Xmax']
-        
-        # Step 4: Calculate average biomass
-        X_avg = (X0 + X) / 2
-        
-        # Step 5: Calculate ethanol production rate (Luedeking-Piret)
-        r_p = self.params['alpha'] * mu * X_avg + self.params['beta'] * X_avg
-        
-        # Step 6: Calculate theoretical ethanol concentration
-        P = r_p * t
-        if P > self.params['Pmax']:
-            P = self.params['Pmax']
-        
-        # Step 7: Calculate substrate consumed
-        S_consumed = (180 / 92) * P
-        
-        # Step 8: Calculate final substrate concentration
-        S_f = S0 - S_consumed
-        if S_f < 0:
-            S_f = 0
-            P = (S0 * 92) / 180  # Recalculate P based on available substrate
-        
-        # Step 9: Calculate total ethanol produced
-        P_total = P * V
-        
-        # Step 10: Estimate unit cost
+        # Final calculations
+        P_total = P_t[-1] * V
         unit_cost = inputs.get('cost', 100) / P_total if P_total > 0 else float('inf')
         
-        # For plotting, create simple linear/exponential trends
-        time_points = np.linspace(0, t, 100)
-        results = {
+        return {
             'time': time_points,
-            'X': X0 * np.exp((mu - self.params['kd']) * time_points),  # Exponential growth
-            'S': np.linspace(S0, S_f, 100),  # Linear substrate decrease
-            'P': np.linspace(0, P, 100)      # Linear ethanol increase
-        }
-        # Cap X at Xmax for plotting
-        results['X'] = np.minimum(results['X'], self.params['Xmax'])
-        
-        outputs = {
-            'X_final': X,
-            'S_final': S_f,
-            'P_final': P,
+            'X': X_t,
+            'S': S_t,
+            'P': P_t
+        }, {
+            'X_final': X_t[-1],
+            'S_final': S_t[-1],
+            'P_final': P_t[-1],
             'P_total': P_total,
             'unit_cost': unit_cost
         }
-        
-        return results, outputs
